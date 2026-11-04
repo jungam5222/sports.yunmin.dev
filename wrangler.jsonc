@@ -1,0 +1,21 @@
+{
+  "name": "sports-yunmin-dev",
+  "compatibility_date": "2026-10-01",
+  // /api/* 는 worker.js(기록 서버), 나머지는 public/ 의 정적 파일.
+  // 종목 페이지(/badminton 같은 주소)는 파일이 없으니 index.html 이 받아서 화면을 그린다.
+  "main": "worker.js",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "single-page-application"
+  },
+  // 경기 기록은 Durable Object 하나(SQLite)에 모은다. 배포하면 저절로 만들어져서 대시보드에서 따로 만들 것이 없다.
+  "durable_objects": {
+    "bindings": [{ "name": "LEAGUE", "class_name": "League" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["League"] }],
+  // 기록·삭제에 쓰는 비밀번호는 여기 적지 않는다(저장소가 공개라서).
+  // Cloudflare 대시보드 → Workers → sports-yunmin-dev → Settings → Variables and Secrets 에 PASSCODE 를 Secret 으로 넣는다.
+  "observability": { "enabled": true }
+}
