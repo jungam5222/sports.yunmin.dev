@@ -344,7 +344,7 @@
           <div class="side-box a${form$.a.size ? " has" : ""}"><div class="label"><span>A 편</span><span>${form$.a.size || ""}</span></div><div class="picks">${picks("a")}</div></div>
           <div class="side-box b${form$.b.size ? " has" : ""}"><div class="label"><span>B 편</span><span>${form$.b.size || ""}</span></div><div class="picks">${picks("b")}</div></div>
         </div>
-        <form class="add-player" id="add-player"><input class="in" name="name" maxlength="20" placeholder="새 사람 이름" autocomplete="off"><button class="btn small ghost" type="submit">＋ 추가</button></form>
+        <form class="add-player" id="add-player"><input class="in" name="name" maxlength="20" placeholder="새 사람 이름 (예: 홍윤민)" autocomplete="off"><button class="btn small ghost" type="submit">＋ 추가</button></form>
       </div>
       <div class="field">
         <span class="label">점수</span>
