@@ -146,6 +146,7 @@
   const wl = (x) => `<span class="wl mono"><b>${x.w}</b>승 <s>${x.l}</s>패${x.d ? ` ${x.d}무` : ""}</span>`;
   const form = (f) => `<span class="form" aria-label="최근 경기 ${f.slice(-5).join(" ")}">${f.slice(-5).map((c) => `<i class="${c}"></i>`).join("")}</span>`;
   const sportOf = (id) => S.bySport.get(id);
+  const setLine = (m) => (m.sets || []).map(([x, y]) => `<span class="${x > y ? "sw" : ""}">${x}</span>-<span class="${y > x ? "sw" : ""}">${y}</span>`).join(" · ");
   const gameRow = (m, { showSport = false, canDelete = false, byDay = false } = {}) => {
     const aWin = m.sa > m.sb, bWin = m.sb > m.sa;
     const g = sportOf(m.sport);
@@ -156,7 +157,7 @@
       <div class="score"><span class="${aWin ? "w" : bWin ? "l" : ""}">${m.sa}</span> : <span class="${bWin ? "w" : aWin ? "l" : ""}">${m.sb}</span></div>
       ${side(m.b, "b" + (bWin ? " win" : ""))}
       <div class="act">${canDelete ? `<button class="x" data-del="${m.id}" aria-label="이 경기 지우기" title="지우기">✕</button>` : ""}</div>
-      ${m.note ? `<div class="note">${esc(m.note)}</div>` : ""}
+      ${m.sets?.length || m.note ? `<div class="note">${setLine(m)}${m.sets?.length && m.note ? " · " : ""}${esc(m.note)}</div>` : ""}
     </li>`;
   };
   const gameList = (list, opts = {}, limit = 15) => {
@@ -194,7 +195,7 @@
           <div class="board-score"><span class="${aW ? "w" : ""}">${latest.sa}</span><i>:</i><span class="${bW ? "w" : ""}">${latest.sb}</span></div>
           <div class="board-side${bW ? " win" : ""}"><div class="board-names">${latest.b.map((i) => esc(name(i))).join("<br>")}</div></div>
         </div>
-        <div class="board-foot"><span>${latest.note ? esc(latest.note) : "방금 올라온 경기"}</span><a href="/${esc(latest.sport)}">${esc(g?.sport.name)} 순위 →</a></div></div>`;
+        <div class="board-foot"><span>${latest.sets?.length ? `<span class="mono">${setLine(latest)}</span>` : latest.note ? esc(latest.note) : "방금 올라온 경기"}</span><a href="/${esc(latest.sport)}">${esc(g?.sport.name)} 순위 →</a></div></div>`;
     })();
 
     const overall = S.overall.length
@@ -252,11 +253,11 @@
   }
 
   // ---------- 종목 페이지 ----------
-  const form$ = { sport: null, a: new Set(), b: new Set() };
+  const form$ = { sport: null, picks: [] };
   function renderSport(g) {
     const s = g.sport;
     document.title = `${s.name} 순위 · sports.yunmin.dev`;
-    if (form$.sport !== s.id) { form$.sport = s.id; form$.a.clear(); form$.b.clear(); }
+    if (form$.sport !== s.id) { form$.sport = s.id; form$.picks = []; }
     const list = [...g.matches].reverse();
     const last = list[0];
     const unlocked = !!store.get(PASS_KEY);
@@ -273,7 +274,7 @@
             <td class="num hide-m">${x.pf - x.pa > 0 ? "+" : ""}${x.pf - x.pa}</td>
             <td class="hide-m">${form(x.form)}</td>
           </tr>`).join("")}</tbody></table>
-          <p class="rule">레이팅: 모두 1000점에서 시작. 이기면 오르고 지면 내려가요. 강한 상대를 이기면 더 많이 오르고, 약한 상대에게 지면 더 많이 내려가요 (Elo 방식, 복식은 팀 평균으로 계산).</p></div>`
+          <p class="rule">레이팅: 모두 1000점에서 시작. 이기면 오르고 지면 내려가요. 강한 상대를 이기면 더 많이 오르고, 약한 상대에게 지면 더 많이 내려가요 (Elo 방식). 득실은 이긴 세트 − 진 세트.</p></div>`
       : `<div class="panel"><div class="empty">아직 ${esc(s.name)} 경기가 없어요. 첫 경기를 기록해 보세요.</div></div>`;
 
     // 단식 맞대결 표
@@ -289,7 +290,7 @@
         }
         return [w, l];
       };
-      h2h = `<section class="sec"><div class="sec-head"><h2>맞대결</h2><span class="muted">1:1 경기만, 왼쪽 사람 기준 승-패</span></div>
+      h2h = `<section class="sec"><div class="sec-head"><h2>맞대결</h2><span class="muted">왼쪽 사람 기준 승-패</span></div>
         <div class="panel table-wrap"><table class="h2h"><thead><tr><th></th>${ids.map((q) => `<th>${esc(name(q))}</th>`).join("")}</tr></thead>
         <tbody>${ids.map((p) => `<tr><th>${plink(p)}</th>${ids.map((q) => {
           if (p === q) return `<td class="self"></td>`;
@@ -327,85 +328,128 @@
     });
   }
 
+  // 두 사람을 고르고, 세트 스코어를 적고, 그 아래에 세트마다 점수를 적는다.
+  // 세트 점수 칸 수 = 세트 스코어의 합. 세트 점수는 비워 두거나(세트 스코어만 기록) 모두 채운다.
+  const MAX_SETS = 9;
   function renderForm(g, keep = {}) {
     const el = $("#rec");
     const counts = new Map(g.ranking.map((x) => [x.id, x.n]));
     const ps = [...DATA.players].sort((x, y) => (counts.get(y.id) || 0) - (counts.get(x.id) || 0) || x.name.localeCompare(y.name, "ko"));
-    const picks = (side) => {
-      const mine = form$[side], other = form$[side === "a" ? "b" : "a"];
-      return ps.length
-        ? ps.map((p) => `<button type="button" class="pick" data-side="${side}" data-id="${p.id}" aria-pressed="${mine.has(p.id)}"${other.has(p.id) ? " disabled" : ""}>${esc(p.name)}</button>`).join("")
-        : `<span class="muted" style="font-size:13px">아래에서 사람을 먼저 추가해 주세요</span>`;
-    };
+    const [p1, p2] = form$.picks;
+    const chips = ps.length
+      ? ps.map((p) => {
+          const i = form$.picks.indexOf(p.id);
+          return `<button type="button" class="pick${i >= 0 ? " on" + (i + 1) : ""}" data-id="${p.id}" aria-pressed="${i >= 0}">${i >= 0 ? `<i>${i + 1}</i>` : ""}${esc(p.name)}</button>`;
+        }).join("")
+      : `<span class="muted" style="font-size:13px">아래에서 사람을 먼저 추가해 주세요</span>`;
+    const label = (id, n) => (id ? esc(name(id)) : `선수 ${n}`);
     el.innerHTML = `<h2>경기 기록하기 <span class="chip">${esc(g.sport.emoji)} ${esc(g.sport.name)}</span></h2>
       <div class="field">
-        <span class="label">누가 붙었나요? <span class="muted" style="font-weight:400">복식·팀은 여러 명 고르기</span></span>
-        <div class="sides">
-          <div class="side-box a${form$.a.size ? " has" : ""}"><div class="label"><span>A 편</span><span>${form$.a.size || ""}</span></div><div class="picks">${picks("a")}</div></div>
-          <div class="side-box b${form$.b.size ? " has" : ""}"><div class="label"><span>B 편</span><span>${form$.b.size || ""}</span></div><div class="picks">${picks("b")}</div></div>
-        </div>
+        <span class="label">누가 붙었나요? <span class="muted" style="font-weight:400">두 명을 골라 주세요</span></span>
+        <div class="picks one">${chips}</div>
         <form class="add-player" id="add-player"><input class="in" name="name" maxlength="20" placeholder="새 사람 이름 (예: 홍윤민)" autocomplete="off"><button class="btn small ghost" type="submit">＋ 추가</button></form>
       </div>
       <div class="field">
-        <span class="label">점수</span>
+        <span class="label">세트 스코어</span>
         <div class="scores">
-          <input class="in" id="sa" type="number" inputmode="numeric" min="0" max="99999" placeholder="A" value="${esc(keep.sa ?? "")}" aria-label="A 편 점수">
+          <div class="who w1">${label(p1, 1)}</div><span></span><div class="who w2">${label(p2, 2)}</div>
+          <input class="in" id="sa" type="number" inputmode="numeric" min="0" max="${MAX_SETS}" placeholder="0" value="${esc(keep.sa ?? "")}" aria-label="${label(p1, 1)} 세트 스코어">
           <span>:</span>
-          <input class="in" id="sb" type="number" inputmode="numeric" min="0" max="99999" placeholder="B" value="${esc(keep.sb ?? "")}" aria-label="B 편 점수">
+          <input class="in" id="sb" type="number" inputmode="numeric" min="0" max="${MAX_SETS}" placeholder="0" value="${esc(keep.sb ?? "")}" aria-label="${label(p2, 2)} 세트 스코어">
         </div>
+      </div>
+      <div class="field" id="sets-field" hidden>
+        <span class="label">세트별 점수 <span class="muted" style="font-weight:400">(선택)</span></span>
+        <div class="sets" id="sets"></div>
       </div>
       <div class="field row2">
         <div><label for="date">날짜</label><input class="in" id="date" type="date" value="${esc(keep.date || today())}" max="${today()}"></div>
-        <div><label for="note">메모 <span class="muted" style="font-weight:400">(선택)</span></label><input class="in" id="note" maxlength="120" placeholder="예: 3세트, 21-19 21-17" value="${esc(keep.note || "")}"></div>
+        <div><label for="note">메모 <span class="muted" style="font-weight:400">(선택)</span></label><input class="in" id="note" maxlength="120" placeholder="예: 마지막 세트 듀스" value="${esc(keep.note || "")}"></div>
       </div>
       <p class="verdict" id="verdict"></p>
       <button class="btn primary" id="save" type="button">기록하기</button>
       <p class="msg" id="msg"></p>`;
 
+    const num = (v) => (v === "" ? null : Number(v));
+    const readSets = () => [...el.querySelectorAll(".set-row")].map((r) => [num(r.querySelector(".x1").value), num(r.querySelector(".x2").value)]);
+    let setVals = keep.sets || [];
+    const drawSets = () => {
+      const n = (Number($("#sa").value) || 0) + (Number($("#sb").value) || 0);
+      const box = $("#sets");
+      if (box.children.length) setVals = readSets();
+      $("#sets-field").hidden = !(n > 0 && n <= MAX_SETS);
+      if (n === box.children.length) return;
+      box.innerHTML = Array.from({ length: n > MAX_SETS ? 0 : n }, (_, i) => {
+        const [x, y] = setVals[i] || [null, null];
+        return `<div class="set-row"><span class="set-no">${i + 1}세트</span>
+          <input class="in x1" type="number" inputmode="numeric" min="0" max="9999" value="${x ?? ""}" aria-label="${i + 1}세트 ${label(p1, 1)} 점수">
+          <span>:</span>
+          <input class="in x2" type="number" inputmode="numeric" min="0" max="9999" value="${y ?? ""}" aria-label="${i + 1}세트 ${label(p2, 2)} 점수"></div>`;
+      }).join("");
+    };
+    // 세트 점수 검사: 모두 비었으면 null, 다 찼으면 배열, 아니면 오류 문구
+    const checkSets = (sa, sb) => {
+      const rows = readSets();
+      if (!rows.length || rows.every(([x, y]) => x == null && y == null)) return { sets: null };
+      if (rows.some(([x, y]) => x == null || y == null)) return { error: "세트 점수를 모두 채우거나 모두 비워 주세요" };
+      const w1 = rows.filter(([x, y]) => x > y).length, w2 = rows.filter(([x, y]) => y > x).length;
+      if (w1 !== sa || w2 !== sb) return { error: `세트 점수대로면 ${w1} : ${w2}인데 세트 스코어는 ${sa} : ${sb}예요` };
+      return { sets: rows };
+    };
     const verdict = () => {
+      drawSets();
       const sa = $("#sa").value, sb = $("#sb").value;
       const v = $("#verdict");
-      const nm = (set) => [...set].map((id) => esc(name(id))).join(", ");
-      if (!form$.a.size || !form$.b.size) v.innerHTML = `<span class="muted">양쪽 선수를 골라 주세요</span>`;
-      else if (sa === "" || sb === "") v.innerHTML = `<b>${nm(form$.a)}</b> vs <b>${nm(form$.b)}</b>`;
-      else if (+sa === +sb) v.innerHTML = `<b>${nm(form$.a)}</b> ${sa} : ${sb} <b>${nm(form$.b)}</b> · 무승부`;
-      else v.innerHTML = `<b>${+sa > +sb ? nm(form$.a) : nm(form$.b)}</b> 승리 (${Math.max(sa, sb)} : ${Math.min(sa, sb)})`;
-      $("#save").disabled = !(form$.a.size && form$.b.size && sa !== "" && sb !== "");
+      let ok = false;
+      if (form$.picks.length < 2) v.innerHTML = `<span class="muted">두 사람을 골라 주세요</span>`;
+      else if (sa === "" || sb === "") v.innerHTML = `<b>${esc(name(p1))}</b> vs <b>${esc(name(p2))}</b>`;
+      else if (+sa + +sb > MAX_SETS) v.innerHTML = `<span class="err">세트는 모두 ${MAX_SETS}개까지예요</span>`;
+      else {
+        const c = checkSets(+sa, +sb);
+        if (c.error) v.innerHTML = `<span class="err">${esc(c.error)}</span>`;
+        else {
+          ok = true;
+          v.innerHTML = +sa === +sb ? `<b>${esc(name(p1))}</b> ${sa} : ${sb} <b>${esc(name(p2))}</b> · 무승부`
+            : `<b>${esc(name(+sa > +sb ? p1 : p2))}</b> 승리 (${Math.max(sa, sb)} : ${Math.min(sa, sb)})`;
+        }
+      }
+      $("#save").disabled = !ok;
     };
-    const snapshot = () => ({ sa: $("#sa").value, sb: $("#sb").value, date: $("#date").value, note: $("#note").value });
+    const snapshot = () => ({ sa: $("#sa").value, sb: $("#sb").value, date: $("#date").value, note: $("#note").value, sets: readSets() });
     el.querySelectorAll(".pick").forEach((b) => (b.onclick = () => {
-      const set = form$[b.dataset.side], id = Number(b.dataset.id);
-      set.has(id) ? set.delete(id) : set.add(id);
+      const id = Number(b.dataset.id), i = form$.picks.indexOf(id);
+      if (i >= 0) form$.picks.splice(i, 1);
+      else if (form$.picks.length < 2) form$.picks.push(id);
+      else form$.picks[1] = id; // 이미 두 명이면 두 번째 사람을 바꾼다
       renderForm(g, snapshot());
     }));
-    el.addEventListener("input", verdict);
+    el.oninput = verdict;
     verdict();
     const msg = (t, cls) => { const m = $("#msg"); m.textContent = t; m.className = "msg " + (cls || ""); };
 
     $("#add-player").onsubmit = async (e) => {
       e.preventDefault();
-      const input = e.target.name;
-      const nm = input.value.trim();
+      const nm = e.target.name.value.trim();
       if (!nm) return;
       const keepNow = snapshot();
       try {
         await mutate("POST", "/players", { name: nm });
         const p = DATA.players.find((x) => x.name === nm);
-        if (p && !form$.a.size) form$.a.add(p.id); // 비어 있는 편이 있으면 그쪽에 바로 넣기
-        else if (p && !form$.b.size) form$.b.add(p.id);
-        S = compute(DATA);
+        if (p && form$.picks.length < 2) form$.picks.push(p.id);
         renderForm(sportOf(g.sport.id), keepNow);
         toast(`${nm} 님을 추가했어요`);
       } catch (err) { if (err.message !== "cancel") msg(err.message, "err"); }
     };
 
     $("#save").onclick = async () => {
-      const body = { sport: g.sport.id, a: [...form$.a], b: [...form$.b], sa: Number($("#sa").value), sb: Number($("#sb").value), date: $("#date").value, note: $("#note").value };
+      const sa = Number($("#sa").value), sb = Number($("#sb").value);
+      const c = checkSets(sa, sb);
+      if (c.error) return msg(c.error, "err");
+      const body = { sport: g.sport.id, a: [p1], b: [p2], sa, sb, sets: c.sets || [], date: $("#date").value, note: $("#note").value };
       $("#save").disabled = true;
       try {
         await mutate("POST", "/matches", body);
-        const keepDate = body.date;
-        render({ date: keepDate });
+        render({ date: body.date });
         toast("경기를 기록했어요");
       } catch (err) {
         $("#save").disabled = false;

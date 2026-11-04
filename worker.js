@@ -39,6 +39,9 @@ export class League extends DurableObject {
       id INTEGER PRIMARY KEY AUTOINCREMENT, sport TEXT NOT NULL, played_on TEXT NOT NULL,
       side_a TEXT NOT NULL, side_b TEXT NOT NULL, score_a INTEGER NOT NULL, score_b INTEGER NOT NULL,
       note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, deleted_at INTEGER)`);
+    // 세트별 점수 [[11,8],[9,11],...] (2026-11-04 추가). 비어 있으면 세트 스코어만 기록한 경기
+    const cols = this.sql.exec("PRAGMA table_info(matches)").toArray().map((c) => c.name);
+    if (!cols.includes("sets")) this.sql.exec("ALTER TABLE matches ADD COLUMN sets TEXT NOT NULL DEFAULT '[]'");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS fails (ip TEXT NOT NULL, hour INTEGER NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (ip, hour))`);
     if (!this.sql.exec("SELECT 1 FROM sports LIMIT 1").toArray().length) {
       DEFAULT_SPORTS.forEach(([id, name, emoji], i) =>
@@ -50,10 +53,10 @@ export class League extends DurableObject {
     const sports = this.sql.exec("SELECT id, name, emoji FROM sports ORDER BY sort, created_at").toArray();
     const players = this.sql.exec("SELECT id, name FROM players ORDER BY id").toArray();
     const matches = this.sql
-      .exec(`SELECT id, sport, played_on AS date, side_a, side_b, score_a AS sa, score_b AS sb, note, created_at AS at
+      .exec(`SELECT id, sport, played_on AS date, side_a, side_b, score_a AS sa, score_b AS sb, sets, note, created_at AS at
              FROM matches WHERE deleted_at IS NULL ORDER BY played_on, id`)
       .toArray()
-      .map(({ side_a, side_b, ...m }) => ({ ...m, a: JSON.parse(side_a), b: JSON.parse(side_b) }));
+      .map(({ side_a, side_b, sets, ...m }) => ({ ...m, a: JSON.parse(side_a), b: JSON.parse(side_b), sets: JSON.parse(sets) }));
     return { sports, players, matches };
   }
 
@@ -115,10 +118,19 @@ export class League extends DurableObject {
     const sa = Number(body.sa), sb = Number(body.sb);
     const okScore = (n) => Number.isInteger(n) && n >= 0 && n <= 99999;
     if (!okScore(sa) || !okScore(sb)) return { error: "점수는 0 이상의 정수로 적어 주세요." };
+    // 세트별 점수: 없거나, 세트 스코어의 합만큼 있고 이긴 세트 수가 세트 스코어와 맞아야 한다
+    const sets = Array.isArray(body.sets) ? body.sets : [];
+    if (sets.length) {
+      if (sets.length !== sa + sb || sets.length > 9) return { error: "세트 점수 칸 수가 세트 스코어와 안 맞아요." };
+      if (!sets.every((r) => Array.isArray(r) && r.length === 2 && r.every((n) => Number.isInteger(n) && n >= 0 && n <= 9999)))
+        return { error: "세트 점수가 이상해요." };
+      if (sets.filter(([x, y]) => x > y).length !== sa || sets.filter(([x, y]) => y > x).length !== sb)
+        return { error: "세트 점수와 세트 스코어가 안 맞아요." };
+    }
     const note = clean(body.note, 120);
     this.sql.exec(
-      `INSERT INTO matches (sport, played_on, side_a, side_b, score_a, score_b, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      sport, date, JSON.stringify(a), JSON.stringify(b), sa, sb, note, Date.now());
+      `INSERT INTO matches (sport, played_on, side_a, side_b, score_a, score_b, sets, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sport, date, JSON.stringify(a), JSON.stringify(b), sa, sb, JSON.stringify(sets), note, Date.now());
     return { ok: true };
   }
 
