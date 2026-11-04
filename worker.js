@@ -10,7 +10,6 @@ import { DurableObject } from "cloudflare:workers";
 const DEFAULT_SPORTS = [
   ["pingpong", "탁구", "🏓"],
   ["badminton", "배드민턴", "🏸"],
-  ["tennis", "테니스", "🎾"],
   ["bowling", "볼링", "🎳"],
   ["billiards", "당구", "🎱"],
 ];
