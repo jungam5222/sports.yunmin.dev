@@ -157,7 +157,8 @@
       <div class="score"><span class="${aWin ? "w" : bWin ? "l" : ""}">${m.sa}</span> : <span class="${bWin ? "w" : aWin ? "l" : ""}">${m.sb}</span></div>
       ${side(m.b, "b" + (bWin ? " win" : ""))}
       <div class="act">${canDelete ? `<button class="x" data-del="${m.id}" aria-label="이 경기 지우기" title="지우기">✕</button>` : ""}</div>
-      ${m.sets?.length || m.note ? `<div class="note">${setLine(m)}${m.sets?.length && m.note ? " · " : ""}${esc(m.note)}</div>` : ""}
+      ${m.sets?.length ? `<div class="note sets-line">${setLine(m)}</div>` : ""}
+      ${m.note ? `<div class="note">${esc(m.note)}</div>` : ""}
     </li>`;
   };
   const gameList = (list, opts = {}, limit = 15) => {
