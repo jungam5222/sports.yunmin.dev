@@ -31,14 +31,6 @@ body {
   font-family: var(--font); font-size: 16px; line-height: 1.6; letter-spacing: -0.01em;
   word-break: keep-all; overflow-wrap: anywhere; -webkit-font-smoothing: antialiased;
 }
-/* 바탕의 코트 라인 */
-body::before {
-  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: -1;
-  background:
-    linear-gradient(var(--line) 1.5px, transparent 1.5px) 0 0 / 100% 120px;
-  opacity: .35;
-  mask-image: linear-gradient(to bottom, #000, rgba(0,0,0,.2) 70%);
-}
 a { color: inherit; }
 button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 h1, h2, h3 { line-height: 1.25; letter-spacing: -0.03em; margin: 0; }
