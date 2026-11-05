@@ -335,25 +335,24 @@
   function renderForm(g, keep = {}) {
     const el = $("#rec");
     const counts = new Map(g.ranking.map((x) => [x.id, x.n]));
-    const ps = [...DATA.players].sort((x, y) => (counts.get(y.id) || 0) - (counts.get(x.id) || 0) || x.name.localeCompare(y.name, "ko"));
+    // 사람이 많아서 드롭다운 두 개로 고른다 (2026-11-05 사용자 요청). 가나다순.
+    const ps = [...DATA.players].sort((x, y) => x.name.localeCompare(y.name, "ko"));
     const [p1, p2] = form$.picks;
-    const chips = ps.length
-      ? ps.map((p) => {
-          const i = form$.picks.indexOf(p.id);
-          return `<button type="button" class="pick${i >= 0 ? " on" + (i + 1) : ""}" data-id="${p.id}" aria-pressed="${i >= 0}">${i >= 0 ? `<i>${i + 1}</i>` : ""}${esc(p.name)}</button>`;
-        }).join("")
-      : `<span class="muted" style="font-size:13px">아래에서 사람을 먼저 추가해 주세요</span>`;
+    const select = (n, mine, other) => `<select class="in sel${mine ? " has" : ""}" id="p${n}" aria-label="선수 ${n}">
+        <option value="">선수 ${n} 고르기</option>
+        ${ps.map((p) => `<option value="${p.id}"${p.id === mine ? " selected" : ""}${p.id === other ? " disabled" : ""}>${esc(p.name)}</option>`).join("")}
+      </select>`;
     const label = (id, n) => (id ? esc(name(id)) : `선수 ${n}`);
     el.innerHTML = `<h2>경기 기록하기 <span class="chip">${esc(g.sport.emoji)} ${esc(g.sport.name)}</span></h2>
       <div class="field">
-        <span class="label">누가 붙었나요? <span class="muted" style="font-weight:400">두 명을 골라 주세요</span></span>
-        <div class="picks one">${chips}</div>
+        <span class="label">누가 붙었나요?</span>
+        <div class="duel">${select(1, p1, p2)}<span class="vs">vs</span>${select(2, p2, p1)}</div>
+        ${ps.length ? "" : `<p class="muted" style="font-size:13px;margin-top:6px">아래에서 사람을 먼저 추가해 주세요</p>`}
         <form class="add-player" id="add-player"><input class="in" name="name" maxlength="20" placeholder="새 사람 이름 (예: 홍윤민)" autocomplete="off"><button class="btn small ghost" type="submit">＋ 추가</button></form>
       </div>
       <div class="field">
         <span class="label">세트 스코어</span>
         <div class="scores">
-          <div class="who w1">${label(p1, 1)}</div><span></span><div class="who w2">${label(p2, 2)}</div>
           <input class="in" id="sa" type="number" inputmode="numeric" min="0" max="${MAX_SETS}" placeholder="0" value="${esc(keep.sa ?? "")}" aria-label="${label(p1, 1)} 세트 스코어">
           <span>:</span>
           <input class="in" id="sb" type="number" inputmode="numeric" min="0" max="${MAX_SETS}" placeholder="0" value="${esc(keep.sb ?? "")}" aria-label="${label(p2, 2)} 세트 스코어">
@@ -402,7 +401,7 @@
       const sa = $("#sa").value, sb = $("#sb").value;
       const v = $("#verdict");
       let ok = false;
-      if (form$.picks.length < 2) v.innerHTML = `<span class="muted">두 사람을 골라 주세요</span>`;
+      if (!p1 || !p2) v.innerHTML = `<span class="muted">두 사람을 골라 주세요</span>`;
       else if (sa === "" || sb === "") v.innerHTML = `<b>${esc(name(p1))}</b> vs <b>${esc(name(p2))}</b>`;
       else if (+sa + +sb > MAX_SETS) v.innerHTML = `<span class="err">세트는 모두 ${MAX_SETS}개까지예요</span>`;
       else {
@@ -417,11 +416,8 @@
       $("#save").disabled = !ok;
     };
     const snapshot = () => ({ sa: $("#sa").value, sb: $("#sb").value, date: $("#date").value, note: $("#note").value, sets: readSets() });
-    el.querySelectorAll(".pick").forEach((b) => (b.onclick = () => {
-      const id = Number(b.dataset.id), i = form$.picks.indexOf(id);
-      if (i >= 0) form$.picks.splice(i, 1);
-      else if (form$.picks.length < 2) form$.picks.push(id);
-      else form$.picks[1] = id; // 이미 두 명이면 두 번째 사람을 바꾼다
+    el.querySelectorAll("select.sel").forEach((sel) => (sel.onchange = () => {
+      form$.picks = [Number($("#p1").value) || null, Number($("#p2").value) || null];
       renderForm(g, snapshot());
     }));
     el.oninput = verdict;
@@ -436,7 +432,8 @@
       try {
         await mutate("POST", "/players", { name: nm });
         const p = DATA.players.find((x) => x.name === nm);
-        if (p && form$.picks.length < 2) form$.picks.push(p.id);
+        if (p && !p1) form$.picks = [p.id, p2 || null];
+        else if (p && !p2) form$.picks = [p1, p.id];
         renderForm(sportOf(g.sport.id), keepNow);
         toast(`${nm} 님을 추가했어요`);
       } catch (err) { if (err.message !== "cancel") msg(err.message, "err"); }
