@@ -3,7 +3,8 @@
 // 모든 기록은 Durable Object "League" 하나의 SQLite에 있다 (종목·사람·경기).
 // 순위(레이팅)는 저장하지 않고, 화면이 경기 목록을 처음부터 다시 계산한다. 경기를 지우거나 고치면 순위가 저절로 맞춰진다.
 //
-// 보기는 누구나. 기록·삭제·사람/종목 추가는 공용 비밀번호(PASSCODE, Cloudflare Secret)를 아는 사람만.
+// 보기도 기록도 누구나 (2026-11-05 사용자: 같이 하는 사람들만 들어올 거라 비밀번호는 없앰).
+// 대신 같은 곳(IP)에서 한 시간에 고치는 요청을 MAX_WRITES번까지만 받아 장난으로 쏟아붓는 것만 막는다.
 // 경기를 지우면 실제로 지우지 않고 deleted_at 만 적어 둔다. 실수로 지운 것을 되살릴 수 있게.
 import { DurableObject } from "cloudflare:workers";
 
@@ -17,7 +18,7 @@ const RESERVED = new Set(["api", "assets", "p", "players", "admin", "index", "fa
 const SLUG = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SIDE = 6; // 한 편에 최대 몇 명 (풋살·농구 같은 팀 경기까지)
-const MAX_FAILS = 15; // 한 시간에 같은 곳(IP)에서 비밀번호를 틀릴 수 있는 횟수
+const MAX_WRITES = 300; // 한 시간에 같은 곳(IP)에서 받을 기록·삭제 요청 수
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -42,7 +43,8 @@ export class League extends DurableObject {
     // 세트별 점수 [[11,8],[9,11],...] (2026-11-04 추가). 비어 있으면 세트 스코어만 기록한 경기
     const cols = this.sql.exec("PRAGMA table_info(matches)").toArray().map((c) => c.name);
     if (!cols.includes("sets")) this.sql.exec("ALTER TABLE matches ADD COLUMN sets TEXT NOT NULL DEFAULT '[]'");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS fails (ip TEXT NOT NULL, hour INTEGER NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (ip, hour))`);
+    this.sql.exec("DROP TABLE IF EXISTS fails"); // 비밀번호를 쓰던 때 틀린 횟수
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS writes (ip TEXT NOT NULL, hour INTEGER NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (ip, hour))`);
     if (!this.sql.exec("SELECT 1 FROM sports LIMIT 1").toArray().length) {
       DEFAULT_SPORTS.forEach(([id, name, emoji], i) =>
         this.sql.exec("INSERT INTO sports (id, name, emoji, sort, created_at) VALUES (?, ?, ?, ?, ?)", id, name, emoji, i, Date.now()));
@@ -60,16 +62,14 @@ export class League extends DurableObject {
     return { sports, players, matches };
   }
 
-  // 비밀번호 확인. 틀린 횟수를 IP별로 센다.
-  checkPass(ip, given, real) {
+  // 고치는 요청 수를 IP별로 센다. 넘으면 false.
+  countWrite(ip) {
     const hour = Math.floor(Date.now() / 3600e3);
-    this.sql.exec("DELETE FROM fails WHERE hour < ?", hour - 1);
-    const row = this.sql.exec("SELECT n FROM fails WHERE ip = ? AND hour = ?", ip, hour).toArray()[0];
-    if (row && row.n >= MAX_FAILS) return "too_many";
-    if (given === real) return "ok";
-    this.sql.exec(
-      "INSERT INTO fails (ip, hour, n) VALUES (?, ?, 1) ON CONFLICT(ip, hour) DO UPDATE SET n = n + 1", ip, hour);
-    return "wrong";
+    this.sql.exec("DELETE FROM writes WHERE hour < ?", hour - 1);
+    const row = this.sql.exec("SELECT n FROM writes WHERE ip = ? AND hour = ?", ip, hour).toArray()[0];
+    if (row && row.n >= MAX_WRITES) return false;
+    this.sql.exec("INSERT INTO writes (ip, hour, n) VALUES (?, ?, 1) ON CONFLICT(ip, hour) DO UPDATE SET n = n + 1", ip, hour);
+    return true;
   }
 
   addPlayer(body) {
@@ -156,14 +156,10 @@ export default {
 
     if (method === "GET" && path === "/data") return json(await league.data());
 
-    // 여기부터는 고치는 요청: 비밀번호 필요
+    // 여기부터는 고치는 요청
     if (!["POST", "DELETE"].includes(method)) return fail("지원하지 않는 요청이에요.", 405);
-    if (!env.PASSCODE) return fail("아직 비밀번호(PASSCODE)가 설정되지 않아 기록할 수 없어요.", 503);
     const ip = request.headers.get("cf-connecting-ip") || "?";
-    const given = request.headers.get("x-pass") || "";
-    const check = await league.checkPass(ip, given, env.PASSCODE);
-    if (check === "too_many") return fail("비밀번호를 너무 많이 틀렸어요. 한 시간 뒤에 다시 해 주세요.", 429);
-    if (check === "wrong") return fail("비밀번호가 맞지 않아요.", 401);
+    if (!(await league.countWrite(ip))) return fail("요청이 너무 많아요. 잠시 뒤에 다시 해 주세요.", 429);
 
     let body = {};
     if (method === "POST") {
@@ -176,8 +172,7 @@ export default {
 
     let result;
     let m;
-    if (method === "POST" && path === "/login") result = { ok: true };
-    else if (method === "POST" && path === "/players") result = await league.addPlayer(body);
+    if (method === "POST" && path === "/players") result = await league.addPlayer(body);
     else if (method === "POST" && path === "/sports") result = await league.addSport(body);
     else if (method === "POST" && path === "/matches") result = await league.addMatch(body);
     else if (method === "DELETE" && (m = path.match(/^\/matches\/(\d+)$/))) result = await league.deleteMatch(Number(m[1]));

@@ -32,16 +32,14 @@
   let S = null; // 계산 결과
 
   // ---------- 서버 ----------
-  const PASS_KEY = "sports-pass";
   async function api(method, path, body) {
     const res = await fetch("/api" + path, {
       method,
-      headers: { "content-type": "application/json", "x-pass": store.get(PASS_KEY) || "" },
+      headers: { "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
     let out = {};
     try { out = await res.json(); } catch {}
-    if (res.status === 401) { store.set(PASS_KEY, null); paintLock(); }
     if (!res.ok) throw Object.assign(new Error(out.error || "요청이 실패했어요."), { status: res.status });
     return out;
   }
@@ -57,17 +55,11 @@
       if (!DATA) main.innerHTML = `<div class="loading">기록을 불러오지 못했어요. 잠시 뒤 새로고침해 주세요.</div>`;
     }
   }
-  // 고치는 요청: 비밀번호 확인 → 보내기 → 새 데이터로 다시 그리기
+  // 고치는 요청: 보내고 새 데이터로 바꾸기
   async function mutate(method, path, body) {
-    await ensurePass();
-    try {
-      const out = await api(method, path, body);
-      if (out.data) { setData(out.data); store.set("sports-cache", JSON.stringify(out.data)); }
-      return out;
-    } catch (e) {
-      if (e.status === 401) { await ensurePass(); return mutate(method, path, body); }
-      throw e;
-    }
+    const out = await api(method, path, body);
+    if (out.data) { setData(out.data); store.set("sports-cache", JSON.stringify(out.data)); }
+    return out;
   }
 
   // ---------- 계산 ----------
@@ -261,7 +253,6 @@
     if (form$.sport !== s.id) { form$.sport = s.id; form$.picks = []; }
     const list = [...g.matches].reverse();
     const last = list[0];
-    const unlocked = !!store.get(PASS_KEY);
 
     const ranking = g.ranking.length
       ? `<div class="panel table-wrap"><table class="rank">
@@ -313,8 +304,8 @@
           <div class="sec-head"><h2>순위</h2></div>
           ${ranking}
           <section class="sec">
-            <div class="sec-head"><h2>경기 기록</h2>${unlocked ? `<span class="muted">✕ 를 누르면 지울 수 있어요</span>` : ""}</div>
-            <div class="panel" id="games">${gameList(list, { byDay: true, canDelete: unlocked }, 20)}</div>
+            <div class="sec-head"><h2>경기 기록</h2><span class="muted">✕ 를 누르면 지울 수 있어요</span></div>
+            <div class="panel" id="games">${gameList(list, { byDay: true, canDelete: true }, 20)}</div>
           </section>
           ${h2h}
         </div>
@@ -322,7 +313,7 @@
       </div>
     </div>`;
     renderForm(g);
-    bindMore($("#games"), (n) => gameList(list, { byDay: true, canDelete: unlocked }, n));
+    bindMore($("#games"), (n) => gameList(list, { byDay: true, canDelete: true }, n));
     $("#games").addEventListener("click", (e) => {
       const b = e.target.closest("[data-del]");
       if (b) deleteMatch(Number(b.dataset.del));
@@ -552,35 +543,7 @@
     });
   }
 
-  function ensurePass() {
-    if (store.get(PASS_KEY)) return Promise.resolve();
-    return openDialog(`<h3>🔒 기록 잠금 해제</h3><p>기록하거나 지우려면 같이 운동하는 사람들끼리 정한 비밀번호가 필요해요. 한 번 넣으면 이 기기에서는 기억해요.</p>
-      <div class="field"><input class="in" name="pass" type="password" autocomplete="current-password" placeholder="비밀번호" required></div>`,
-      async (f) => {
-        const pass = f.pass.value;
-        const res = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json", "x-pass": pass }, body: "{}" });
-        if (!res.ok) { let m = "비밀번호가 맞지 않아요."; try { m = (await res.json()).error || m; } catch {} throw new Error(m); }
-        store.set(PASS_KEY, pass);
-        paintLock();
-        render();
-      }, $("#dlg-pass"));
-  }
-
-  function paintLock() {
-    const b = $("#lock");
-    const on = !!store.get(PASS_KEY);
-    b.className = "lock" + (on ? " on" : "");
-    b.innerHTML = on ? `🔓 <span class="t">기록 가능</span>` : `🔒 <span class="t">기록 잠김</span>`;
-    b.title = on ? "이 기기에서 비밀번호 지우기" : "비밀번호를 넣고 기록 잠금 풀기";
-  }
-  $("#lock").onclick = () => {
-    if (store.get(PASS_KEY)) {
-      if (confirm("이 기기에서 비밀번호를 지울까요? 다시 기록하려면 또 넣어야 해요.")) { store.set(PASS_KEY, null); paintLock(); render(); }
-    } else ensurePass().catch(() => {});
-  };
-
   async function addSportDialog() {
-    try { await ensurePass(); } catch { return; }
     openDialog(`<h3>종목 추가</h3><p>새로 같이 하는 운동이 생겼나요?</p>
       <div class="field"><label for="sp-name">이름</label><input class="in" id="sp-name" name="sname" maxlength="20" placeholder="예: 풋살" required></div>
       <div class="field row2"><div><label for="sp-emo">이모지</label><input class="in" id="sp-emo" name="emoji" maxlength="8" placeholder="⚽"></div>
@@ -605,6 +568,6 @@
     } else renderMissing();
   }
 
-  paintLock();
+  try { localStorage.removeItem("sports-pass"); } catch {} // 비밀번호를 쓰던 때 저장한 값
   load();
 })();

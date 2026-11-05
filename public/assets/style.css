@@ -48,13 +48,6 @@ p { margin: 0; }
 .logo b { color: var(--red); font-weight: 700; }
 .logo .ball { transition: transform .5s cubic-bezier(.3,1.6,.5,1); }
 .logo:hover .ball { transform: rotate(200deg); }
-.lock {
-  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-  font-size: 13.5px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
-  border: 1.5px solid var(--line-2); background: var(--card); color: var(--ink-2);
-}
-.lock:hover { border-color: var(--ink); color: var(--ink); }
-.lock.on { border-color: rgba(46,158,91,.45); background: rgba(46,158,91,.08); color: var(--green); }
 
 /* ---------- common ---------- */
 main { padding-bottom: 40px; }
@@ -305,7 +298,6 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
   .day-head { padding-left: 14px; }
   .h2h tbody th { padding-left: 14px; }
   .rule { padding: 10px 14px 12px; }
-  .lock .t { display: none; }
 }
 
 /* 두 사람 고르기 + 세트 점수 */

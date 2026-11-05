@@ -23,10 +23,8 @@
 
 ## 기록 권한
 
-보기는 누구나. 경기 기록·삭제, 사람·종목 추가는 공용 비밀번호를 아는 사람만 할 수 있다.
-비밀번호는 Cloudflare 대시보드 → Workers & Pages → `sports-yunmin-dev` → Settings → Variables and Secrets 에서
-`PASSCODE` 라는 이름의 **Secret** 으로 넣는다. 한 번 넣으면 그 기기 브라우저가 기억한다.
-한 시간에 15번 넘게 틀리면 그 IP는 한 시간 동안 막힌다.
+보기도 기록도 누구나 할 수 있다 (2026-11-05: 같이 하는 사람들만 들어올 거라 비밀번호를 없앰).
+장난으로 쏟아붓는 것만 막으려고 같은 IP에서 한 시간에 300번까지만 기록·삭제를 받는다.
 
 지운 경기는 실제로 지우지 않고 숨겨 둔다 (지운 직후 "되돌리기" 가능).
 
@@ -35,18 +33,14 @@
 | 요청 | 설명 |
 | --- | --- |
 | `GET /api/data` | 종목·사람·경기 전체 |
-| `POST /api/login` | 비밀번호 확인 |
 | `POST /api/players` `{name}` | 사람 추가 |
 | `POST /api/sports` `{name, emoji, id?}` | 종목 추가 (`id`는 주소, 영어 소문자) |
 | `POST /api/matches` `{sport, date, a:[id], b:[id], sa, sb, sets?, note?}` | 경기 기록. `sa:sb`는 세트 스코어, `sets`는 `[[11,8],[9,11],…]` (비우거나, 세트 스코어 합만큼 채우고 이긴 세트 수가 맞아야 함) |
 | `DELETE /api/matches/:id` | 경기 지우기 |
 | `POST /api/matches/:id/restore` | 지운 경기 되살리기 |
 
-고치는 요청은 `x-pass` 헤더에 비밀번호를 넣는다.
-
 ## 로컬에서 실행
 
 ```sh
-echo 'PASSCODE=test' > .dev.vars
 npx wrangler dev
 ```
