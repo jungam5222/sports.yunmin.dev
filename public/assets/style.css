@@ -323,3 +323,10 @@ select.sel:focus { outline: none; border-color: var(--ink); }
 input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 .games .date:empty { display: none; }
+/* iOS Safari: 날짜 칸이 자기 폭을 고집해서 옆 메모 칸을 덮던 문제 */
+.row2 > div { min-width: 0; }
+input[type=date].in { -webkit-appearance: none; appearance: none; display: block; min-width: 0; min-height: 46px; text-align: left; }
+input[type=date].in::-webkit-date-and-time-value { text-align: left; }
+input.in { min-height: 46px; }
+@media (max-width: 640px) { .rec .row2 { grid-template-columns: 1fr; } }
+.row2 label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
